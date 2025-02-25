@@ -1,0 +1,112 @@
+cmake_minimum_required(VERSION 3.22)
+project(mute)
+
+# ------------------ DEFAULT COMPILATION FLAGS
+
+set(MUTE_BUILD_TYPE ${CMAKE_BUILD_TYPE})
+# if (${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+#     set(CMAKE_BUILD_TYPE "Release")
+#     set(MUTE_BUILD_TYPE "Debug")
+#     message(STATUS "Building only mute in Debug, dependencies in Release")
+# endif()
+
+set(CPM_SOURCE_CACHE "${CMAKE_CURRENT_SOURCE_DIR}/ext" CACHE STRING "")
+set(CPM_USE_LOCAL_PACKAGES ON CACHE BOOL "")
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+list(APPEND CMAKE_MODULE_PATH
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/dependencies)
+
+# ------------------ SOURCES
+
+add_executable(mute
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/driver.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/debug.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/miniaudio.impl.cc
+)
+set_target_properties(mute PROPERTIES FOLDER "mute")
+target_compile_features(mute PUBLIC cxx_std_23)
+target_include_directories(mute PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_options(mute PUBLIC -O0 -g)
+
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(mute PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
+
+include(CMakeParseArguments)
+function(target_warnings TARGET SCOPE)
+    set(options
+        ALL
+        ERROR
+    )
+    set(oneValueArgs)
+    set(multiValueArgs)
+    cmake_parse_arguments(PARSE_ARGV 0 arg "${options}" "${oneValueArgs}" "${multiValueArgs}")
+
+    if (arg_ALL)
+        if (MSVC)
+            target_compile_options(${TARGET} ${SCOPE} /W4)
+        else()
+            target_compile_options(${TARGET} ${SCOPE} -Wall -Wextra -Wpedantic)
+        endif()
+    endif()
+    
+    if (arg_ERROR)
+        if (MSVC)
+            target_compile_options(${TARGET} ${SCOPE} /WX)
+        else()
+            target_compile_options(${TARGET} ${SCOPE} -Werror)
+        endif()
+    endif()
+endfunction()
+
+target_warnings(mute PUBLIC ALL ERROR)
+if (NOT MSVC)
+    target_compile_options(mute PUBLIC -Wno-unused-parameter)
+endif()
+
+set_target_properties(mute PROPERTIES CMAKE_BUILD_TYPE ${MUTE_BUILD_TYPE})
+
+# ------------------ DEPENDENCIES
+
+include(fmt)
+include(miniaudio)
+include(libremidi)
+include(raylib)
+# include(entt)
+# include(flecs)
+
+target_compile_definitions(mute
+    PUBLIC
+        MUTE_USE_MINIAUDIO
+        MUTE_USE_FMT
+        MUTE_USE_LIBREMIDI
+        MUTE_USE_RAYLIB
+        # MUTE_USE_ENTT
+        # MUTE_USE_FLECS
+)
+target_link_libraries(mute
+    PUBLIC
+        fmt::fmt
+        miniaudio::miniaudio
+        libremidi::libremidi
+        raylib::raylib
+        # EnTT::EnTT
+        # flecs::flecs
+)
+
+if (APPLE)
+    target_link_libraries(mute
+        PUBLIC
+            "-framework IOKit"
+            "-framework Cocoa"
+            "-framework OpenGL"
+    )
+endif()
