@@ -40,6 +40,7 @@ namespace mute
     constexpr const auto& max(const auto& value, const auto& bound) { return value > bound ? value : bound; }
     constexpr const auto& min(const auto& value, const auto& bound) { return value < bound ? value : bound; }
     constexpr const auto& clamp(const auto& value, const auto& low, const auto& high) { return max(min(value, high), low); }
+    constexpr const auto& clamp(const auto& value) { return max(min(value, static_cast<decltype(value)>(1)), static_cast<decltype(value)>(-1)); }
 
     /// @brief Linearly interpolate value between a and b, using parameter t
     /// @param a left
@@ -74,6 +75,21 @@ namespace mute
 
     // ------------------------------------ AUDIO CONVERSIONS
 
+    namespace frequency
+    {
+        // Maximum pleasure frequency range
+        static constexpr double Low = 10;
+        static constexpr double High = 96'000;
+        constexpr auto denorm(const auto& in) { return in * (High - Low) + Low; }
+        constexpr auto norm(const auto& in) { return (in - Low) / (High - Low); }
+
+        // Safer frequency range according to that dude Nyquist
+        static constexpr double LowSafe = 20;
+        static constexpr double HighSafe = 22'000;   
+        constexpr auto denormSafe(const auto& in) { return in * (HighSafe - LowSafe) + LowSafe; }
+        constexpr auto normSafe(const auto& in) { return (in - LowSafe) / (HighSafe - LowSafe); }
+    }
+
     /// @brief Convert from Hz to BPM
     /// @param in
     /// @return 
@@ -88,7 +104,7 @@ namespace mute
     /// @param pitch in range [0, 256[
     /// @param centerFrequency in Hertz
     /// @return 
-    float pitch2Hz(int pitch, float centerFrequency = 440)
+    inline float pitch2Hz(int pitch, float centerFrequency = 440)
     {
         return centerFrequency * std::pow(2, (pitch - 69) / 12);
     }
@@ -106,20 +122,21 @@ namespace mute
     /// @param x input
     /// @param k gain strength [0, +inf]
     /// @return 
-    float gain(float x, float k)
+    inline float gain(float x, float k)
     {
         float a = 0.5 * std::pow(2.0 * ((x < 0.5) ? x : 1.0 - x), k);
         return (x < 0.5) ? a : 1.0 - a;
     }
 
-    float random(float low, float high)
-    {
-        using distribution = std::uniform_real_distribution<float>;
-        static std::mt19937 engine;
-        return distribution(low, high)(engine);
-    }
+    // std::mt19937 RAND_ENGINE;
 
-    float saturate(float in, float gain)
+    // inline float random(float low, float high)
+    // {
+    //     using distribution = std::uniform_real_distribution<float>;
+    //     return distribution(low, high)(RAND_ENGINE);
+    // }
+
+    inline float saturate(float in, float gain)
     {
         return tanh(gain * in);
     }
@@ -145,7 +162,7 @@ namespace mute
         Sawtooth
     };
 
-    float sawsine(float* phase, float frequency, float sampleRate, float k)
+    inline float sawsine(float* phase, float frequency, float sampleRate, float k)
     {
         *phase = rephase(*phase + Tau * frequency / sampleRate);
         return sin(Tau*gain(fmodf(*phase/Tau, 1), k));

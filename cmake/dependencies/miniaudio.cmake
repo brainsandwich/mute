@@ -13,9 +13,9 @@ if (miniaudio_ADDED)
     target_include_directories(miniaudio INTERFACE "${miniaudio_SOURCE_DIR}")
     target_compile_definitions(miniaudio
         INTERFACE
-            MA_NO_DECODING
-            MA_NO_ENCODING
-            MA_NO_WAV
+            # MA_NO_DECODING
+            # MA_NO_ENCODING
+            # MA_NO_WAV
             MA_NO_FLAC
             MA_NO_MP3
             MA_NO_GENERATION

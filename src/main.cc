@@ -1,231 +1,566 @@
 #include "mute/dsp.h"
 #include "mute/driver.h"
-#include "mute/enveloppe.h"
+#include "mute/debug.h"
+#include "mute/transport.h"
+
+#include "mute/modules/enveloppe.h"
+#include "mute/modules/sequencer.h"
+#include "mute/modules/biquad.h"
+#include "mute/modules/oscillator.h"
+#include "mute/modules/perc.h"
 
 #include <fmt/printf.h>
 #include <fmt/ranges.h>
 
+#include <map>
 #include <ranges>
 #include <span>
+#include <chrono>
 
-namespace mute
-{    
-    struct Patch
-    {
-        virtual ~Patch() = default;
-        virtual void process(AudioProcessData data) = 0;
-    };
+#include "mute/random.h"
 
-    struct PatchGroup
-    {
-        AudioBuffer buffer = AudioBuffer::init(1024);
-        std::vector<std::unique_ptr<Patch>> patches;
-        std::vector<float> volumes;
+#include <miniaudio.h>
 
-        PatchGroup() = default;
-        PatchGroup(const PatchGroup&) = delete;
-        PatchGroup(PatchGroup&&) = default;
+struct Stereo
+{
+    float left, right;
+};
 
-        PatchGroup& add(std::unique_ptr<Patch>&& patch)
-        {
-            patches.emplace_back(std::move(patch));
-            volumes.emplace_back(0.0f);
-            return *this;
-        }
+auto sq(const auto& in) { return in * in; }
 
-        template <std::derived_from<Patch> P>
-        PatchGroup& add()
-        {
-            add(std::make_unique<P>());
-            return *this;
-        }
+// struct MultiPercPatch
+// {
+//     float volume = 1;
+//     static constexpr size_t TrackCount = 12;
 
-        void process(AudioProcessData data)
-        {
-            AudioProcessData patchData = data;
-            buffer.resize(data.frames * data.playback.channels);
-            patchData.playback.buffer = buffer;
+//     struct State
+//     {
+//         std::array<mute::EuclideanSequencer, TrackCount> sequencers;
+//         std::array<mute::Perc, TrackCount> percs;
+//         std::array<float, TrackCount> pannings;
+//     };
 
-            for (int i = 0; i < (int) patches.size(); i++)
-            {
-                buffer *= 0.0f;
-                patches[i]->process(patchData);
-                buffer *= volumes[i];
-                data.playback.buffer += buffer;
-            }
-        }
-    };
+//     State current;
+//     State morphs[2];
 
-    struct Oscillator
-    {
-        float phase = 0;
-        float frequency;
-        float output;
-        float k = 1;
+//     int swapper = 0;
+//     float faderOrigin = 0;
+//     float faderTarget = 1;
+//     float t = 0;
 
-        void process(float sr)
-        {
-            output = mute::sawsine(&phase, frequency, sr, k);
-            // output = mute::oscillate(&phase, frequency, sr);
-        }
-    };
+//     mute::RandomNumberGenerator RNG = mute::RandomNumberGenerator::init(256*4, 0.8);
 
-    struct Sequencer
-    {
-        std::vector<float> values;
-        int index = -1;
+//     void rnd()
+//     {
+//         RNG.seed();
+
+//         for (size_t i = 0; i < TrackCount; i++)
+//         {
+//             auto& morph = morphs[swapper];
+//             auto& seq = morph.sequencers[i];
+//             auto& perc = morph.percs[i];
+//             auto& pan = morph.pannings[i];
+
+//             // param.seq_length = RNG.next(4, 16);
+//             // param.seq_increment = RNG.next(1, 15);
+//             // param.seq_gatelen = 0.01;
+
+//             // param.perc_env1_time = RNG.next(0.05, 1.0);
+//             // param.perc_env1_skew = sq(RNG.next()) * 1.0 + 0.01;
+//             // param.perc_env2_time = RNG.next(0.05, 1.7);
+//             // param.perc_env2_skew = sq(RNG.next()) * 1.0 + 0.01;
+            
+//             // param.perc_pitchmod = sq(RNG.next());
+//             // param.perc_noiseamt = sq(RNG.next());
+//             // param.perc_filterenv = sq(RNG.next());
+
+//             // param.perc_oscfreq = sq(RNG.next()) * 100 + 20;
+//             // param.perc_noisefreq = sq(RNG.next()) * 1000 + 100;
+//             // param.perc_filterfreq = sq(RNG.next()) * 100 + 20;
+
+//             // param.perc_volume = mute::clamp(0.8 + 0.2 / i + sq(RNG.next(0.1, 0.5)), 0., 1.);
+
+//             // param.pan = RNG.next(0.2, 0.7);
+
+//             if (i == 0)
+//             {
+//                 float slr = RNG.next();
+//                 float sir = RNG.next();
+
+//                 if (slr < 0.3) seq.length = 4;
+//                 else if (slr < 0.7) seq.length = 8;
+//                 else if (slr < 1.) seq.length = 9;
+
+//                 if (sir < 0.3) seq.increment = 1;
+//                 else if (sir < 0.7) seq.increment = 2;
+//                 else if (sir < 1.) seq.increment = 3;
+//             } else {
+//                 seq.length = RNG.next(4, 24);
+//                 seq.increment = RNG.next(1, 15);
+//             }
+//             seq.gatelen = 0.01;
+
+//             if (i == 0)
+//             {
+//                 perc.env1 = mute::Waveloppe::triangle(1.0, 1.0);
+//                 perc.env1.time = RNG.next(0.3, 0.7);
+//                 perc.env1.skew = sq(RNG.next()) * 1.0 + 0.01;
+//                 perc.env2 = mute::Waveloppe::fall(1.0, 1.0);
+//                 perc.env2.time = RNG.next(0.8, 1.7);
+//                 perc.env2.skew = sq(RNG.next()) * 1.0 + 0.01;
+
+//                 perc.pitchmod = sq(RNG.next(0., 0.1));
+//                 perc.noiseamt = sq(RNG.next(0., 0.3));
+//                 perc.filterenv = sq(RNG.next(0.1, 0.4));
+//                 perc.filter.q = RNG.next(1., 4.0);
+                
+//                 perc.oscfreq = sq(RNG.next()) * 30 + 40;
+//             } else {
+//                 perc.env1 = mute::Waveloppe::triangle(1.0, 1.0);
+//                 perc.env1.time = RNG.next(0.05, 0.9);
+//                 perc.env1.skew = sq(RNG.next()) * 4.0 + 0.01;
+//                 perc.env2 = mute::Waveloppe::triangle(1.0, 1.0);
+//                 perc.env2.time = RNG.next(0.05, 1.7);
+//                 perc.env2.skew = sq(RNG.next()) * 4.0 + 0.01;
+                
+//                 perc.pitchmod = sq(RNG.next(0.03, 2.0));
+//                 perc.noiseamt = sq(RNG.next(0.1, 0.9));
+//                 perc.filterenv = sq(RNG.next());
+//                 perc.filter.q = RNG.next(0.5, 4.0);
+                
+//                 perc.oscfreq = sq(RNG.next()) * 100 + 20;
+//             }
+
+//             perc.noisefreq = sq(RNG.next()) * 4000 + 1000;
+//             perc.filterfreq = sq(RNG.next()) * 100 + 20;
+
+//             if (i == 0)
+//             {
+//                 perc.volume = 1.9;
+//                 pan = 0.5;
+//             }
+//             else
+//             {
+//                 perc.volume = sq(RNG.next(0.04, 0.4));
+//                 pan = RNG.next(0.0, 1.0);
+//             }
+//         }
+//     }
+
+//     ma_encoder encoder[TrackCount];
+
+//     MultiPercPatch()
+//     {
+//         rnd();
+//         swapper = 1 - swapper;
+//         rnd();
+
+//         for (int i = 0; i < int(TrackCount); i++)
+//         {
+//             ma_encoder_config config = ma_encoder_config_init(ma_encoding_format_wav, ma_format_s16, 2, 44100);
+//             ma_result result = ma_encoder_init_file(fmt::format("track-{}.wav", i).c_str(), &config, &encoder[i]);
+//             if (result != MA_SUCCESS) {
+//                 mute::log::error(fmt::format("Error initializing WAV encoder {}", i));
+//                 return;
+//             }
+//         }
+//     }
+
+//     ~MultiPercPatch()
+//     {
+//         for (int i = 0; i < int(TrackCount); i++)
+//             ma_encoder_uninit(&encoder[i]);
+//     }
+
+//     int accumBar = 0;
+
+//     Stereo process(float sr, mute::Transport transport)
+//     {
+//         Stereo sum = {};
+
+//         if (transport.measure.ticks.bar)
+//             accumBar++;
         
-        float output;
+//         if (accumBar > 8)
+//         {
+//             swapper = 1 - swapper;
+//             rnd();
+//             faderOrigin = 1 - faderOrigin;
+//             faderTarget = 1 - faderTarget;
+//             t = 0;
+//             accumBar = 0;
+//         }
 
-        void next() { index = (index + 1) % values.size(); }
-        void process(float sr) { output = values[std::max(index, 0) % values.size()]; }
-        void randomize(int length, float low, float high) {
-            values.resize(length);
-            for (auto& v: values)
-                v = random(low, high);
-        }
+//         // for (size_t i = 0; i < TrackCount; i++)
+//         // {
+//         //     auto& m = modules[0];
+//         //     auto& seq = m.sequencers[i];
+//         //     auto& perc = m.percs[i];
+//         //     // auto& pan = m.pannings[i];
+//         //     if (transport.measure.ticks._16th)
+//         //         seq.next();
 
-        static Sequencer init(int length, float low, float high)
-        {
-            auto sq = Sequencer {};
-            sq.values.resize(length);
-            sq.randomize(low, high);
-            return sq;
-        }
+//         //     seq.process(sr);
+//         //     perc.gate = seq.output;
+//         //     perc.process(sr);
+            
+//         //     // TODO: panning
+//         //     float out = mute::saturate(perc.output, 1.4);
+//         //     sum.left += out;
+//         //     sum.right += out;
+//         // }
 
-        void randomize(float low, float high)
-        {
-            for (auto& v: values)
-                v = random(low, high);
-        }
-    };
+//         float fadeTime = (4. * 8.) / (transport.bpm / 60.);
+//         float fader = mute::clamp(mute::lerp(faderOrigin, faderTarget, t / fadeTime), 0.f, 1.f);
 
-    struct EdgeDetector
-    {
-        float threshold = 0.5;
-        float input;
+//         for (size_t i = 0; i < TrackCount; i++)
+//         {
+//             auto& seq = current.sequencers[i];
+//             auto& perc = current.percs[i];
+//             auto& pan = current.pannings[i];
 
-        bool rising = false;
-        bool falling = false;
-        bool up = false;
+//             auto& seq0 = morphs[1 - swapper].sequencers[i];
+//             auto& perc0 = morphs[1 - swapper].percs[i];
+//             auto& pan0 = morphs[1 - swapper].pannings[i];
 
-        void process(float sr)
-        {
-            bool before = up;
-            up = input > threshold;
-            rising = up && before != up;
-            falling = !up && before != up;
-        }
-    };
+//             auto& seq1 = morphs[swapper].sequencers[i];
+//             auto& perc1 = morphs[swapper].percs[i];
+//             auto& pan1 = morphs[swapper].pannings[i];
 
-    struct Clock
-    {
-        float input = 0.0f;
-        float bpm = 0.0f;
-        float t = 1000;
-        bool output = false;
+//             if (transport.measure.ticks._16th)
+//                 seq.next();
 
-        void reset() { t = 1000; }
+//             seq.length = mute::lerp(seq0.length, seq1.length, fader);
+//             seq.increment = mute::lerp(seq0.increment, seq1.increment, fader);
+//             seq.gatelen = mute::lerp(seq0.gatelen, seq1.gatelen, fader);
 
-        void process(float sr)
-        {
-            output = false;
-            if (bpm > 0)
-            {
-                const float bps = bpm/60.f;
-                const float spb = 1.f/bps;
-                const float spb128 = spb/128.f;
-                t += sr;
-                if (t > spb128)
-                {
-                    t -= spb128;
-                    output = true;
-                }
-            }
-        }
-    };
+//             perc.env1.time = mute::lerp(perc0.env1.time, perc1.env1.time, fader);
+//             perc.env1.skew = mute::lerp(perc0.env1.skew, perc1.env1.skew, fader);
+//             perc.env2.time = mute::lerp(perc0.env2.time, perc1.env2.time, fader);
+//             perc.env2.skew = mute::lerp(perc0.env2.skew, perc1.env2.skew, fader);
+            
+//             perc.pitchmod = mute::lerp(perc0.pitchmod, perc1.pitchmod, fader);
+//             perc.noiseamt = mute::lerp(perc0.noiseamt, perc1.noiseamt, fader);
+//             perc.filterenv = mute::lerp(perc0.filterenv, perc1.filterenv, fader);
 
-    struct Transport
-    {
-        bool playing;
-        float bpm;
-    };
+//             perc.oscfreq = mute::lerp(perc0.oscfreq, perc1.oscfreq, fader);
+//             perc.noisefreq = mute::lerp(perc0.noisefreq, perc1.noisefreq, fader);
+//             perc.filterfreq = mute::lerp(perc0.filterfreq, perc1.filterfreq, fader);
+
+//             perc.volume = mute::lerp(perc0.volume, perc1.volume, fader);
+
+//             pan = mute::lerp(pan0, pan1, fader);
+
+//             seq.process(sr);
+//             perc.gate = seq.output;
+//             perc.process(sr);
+            
+//             // TODO: panning
+//             float out = mute::saturate(perc.output, 1.4);
+//             float left = out * sqrt(1. - pan);
+//             float right = out * sqrt(pan);
+//             sum.left += left;
+//             sum.right += right;
+
+//             uint64_t framesWritten = 0;
+//             int16_t lr16[2] =
+//             {
+//                 int16_t(left * (std::numeric_limits<int16_t>::max() - 1)),
+//                 int16_t(right * (std::numeric_limits<int16_t>::max() - 1))
+//             };
+            
+//             ma_result write_rez = ma_encoder_write_pcm_frames(&encoder[i], &lr16, 1, &framesWritten);
+//             if (write_rez != MA_SUCCESS)
+//                 mute::log::error("Error writing PCM frame");
+//             // if (framesWritten > 0)
+//             // {
+//             //     mute::log::info(fmt::format("{} frames written !!", framesWritten));
+//             // }
+//         }
+
+//         t += (1. / sr);
+//         return sum;
+//     }
+
+//     void process(mute::AudioProcessData data, mute::Transport transport)
+//     {
+//         for (int f = 0; f < data.frames; f++)
+//         {
+//             transport.update(1. / data.sampleRate);
+
+//             auto [left, right] = process(data.sampleRate, transport);
+//             left = mute::clamp(volume * left, -1.f, 1.f);
+//             right = mute::clamp(volume * right, -1.f, 1.f);
+//             data.playback.buffer[f * data.playback.channels + 0] = left;
+//             data.playback.buffer[f * data.playback.channels + 1] = right;
+//         }
+//     }
+// };
+
+inline float normalize(float in, float min, float max)
+{
+    return (in - min) / (max - min);
 }
 
-struct OscSequencePatch: mute::Patch
+inline float denormalize(float in, float min, float max)
 {
-    mute::Oscillator clock { .frequency = 8.0f };
-    mute::EdgeDetector clockDetector;
+    return in * (max - min) + min;
+}
 
-    mute::Oscillator osc1;
-    mute::Oscillator osc2;
-    mute::AHDSR env = { .a = 0.001, .d = 0.3, .s = 0.3, .r = 0.1 };
+template <typename T>
+inline float getset(T* target, std::optional<float> n, float min, float max)
+{
+    if (n)
+        *target = denormalize(*n, min, max);
+    return normalize(*target, min, max);
+}
 
-    mute::Sequencer pitchseq = mute::Sequencer::init(16, 20, 400);
-    mute::Sequencer gateseq = mute::Sequencer::init(16, 1, 1);
-    mute::Sequencer fmseq = mute::Sequencer::init(16, 0.1, 10);
+struct PercPatch
+{
+    float volume = 1;
+    float panning = 0.5;
+    mute::EuclideanSequencer sequencer = {
+        .increment = 3,
+        .length = 8,
+        .gatelen = 0.1
+    };
+    mute::Perc perc = {
+        .env1 = mute::Waveloppe::triangle(0.3, 0.3),
+        .env2 = mute::Waveloppe::fall(0.9, 0.3),
+        .filterfreq = 60,
+        .oscfreq = 60,
+        .pitchmod = 0.02,
+        .filterenv = 0.4,
+        .noiseamt = 0.3
+    };
 
-    int seqcount = 0;
+    int paramCount() const { return 13; }
 
-    float process(float sr)
+    float param(int index, std::optional<float> newvalue = {})
     {
-        clock.process(sr);
-        clockDetector.input = clock.output;
-        clockDetector.process(sr);
-
-        if (clockDetector.rising)
+        switch (index)
         {
-            pitchseq.next();
-            gateseq.next();
-            fmseq.next();
-            // if (pitchseq.index == 0)
-            //     seqcount++;
-
-            // if (seqcount > 2)
-            // {
-            //     pitchseq.randomize(20, 400);
-            //     gateseq.randomize(0, 1);
-            //     fmseq.randomize(0, 1);
-            //     seqcount = 0;
-            // }
+            case 0: return getset(&volume, newvalue, 0.0f, 1.0f);
+            case 1: return getset(&panning, newvalue, 0.0f, 1.0f);
+            case 2: return getset(&sequencer.increment, newvalue, 1, 5);
+            case 3: return getset(&sequencer.length, newvalue, 4, 8);
+            case 4: return getset(&perc.env1.time, newvalue, 0.1, 0.4);
+            case 5: return getset(&perc.env1.skew, newvalue, 0.01, 0.2);
+            case 6: return getset(&perc.env2.time, newvalue, 0.2, 1.0);
+            case 7: return getset(&perc.env2.skew, newvalue, 0.1, 0.8);
+            case 8: return getset(&perc.filterfreq, newvalue, 20, 200);
+            case 9: return getset(&perc.filter.q, newvalue, 0.8, 5.0);
+            case 10: return getset(&perc.oscfreq, newvalue, 20, 200);
+            case 11: return getset(&perc.pitchmod, newvalue, 0.0, 0.5);
+            case 12: return getset(&perc.filterenv, newvalue, 0.0, 0.5);
+            case 13: return getset(&perc.noiseamt, newvalue, 0.3, 1.0);
+            default: return -1;
         }
-        pitchseq.process(sr);
-        gateseq.process(sr);
-        fmseq.process(sr);
-
-        osc1.frequency = pitchseq.output * 0.5f;
-        osc1.process(sr);
-
-        osc2.k = 1.0;
-        osc2.frequency = pitchseq.output + 0.04 * sr * osc1.output * fmseq.output;
-        osc2.process(sr);
-
-        env.gate = gateseq.output;
-        env.process(sr);
-
-        float out = osc2.output * env.output;
-        out = mute::saturate(out, 2.f);
-        out = mute::clamp(out, -1.f, 1.f);
-        return out;
     }
 
-    void process(mute::AudioProcessData data) override
+    Stereo process(float sr, mute::Transport transport)
+    {
+        Stereo sum = {};
+
+        if (transport.measure.ticks._16th)
+            sequencer.next();
+
+        sequencer.process(sr);
+        perc.gate = sequencer.output;
+        perc.process(sr);
+        
+        float out = mute::saturate(perc.output, 2.4);
+        float left = out * sqrt(1. - panning);
+        float right = out * sqrt(panning);
+        sum.left += left;
+        sum.right += right;
+
+        return sum;
+    }
+
+    void process(mute::AudioProcessData data, mute::Transport transport)
     {
         for (int f = 0; f < data.frames; f++)
         {
-            float out = process(data.sampleRate);
-            for (int c = 0; c < data.playback.channels; c++)
-                data.playback.buffer[f * data.playback.channels + c] = out;
+            transport.update(1. / data.sampleRate);
+
+            auto [left, right] = process(data.sampleRate, transport);
+            left = mute::clamp(volume * left, -1.f, 1.f);
+            right = mute::clamp(volume * right, -1.f, 1.f);
+            data.playback.buffer[f * data.playback.channels + 0] = left;
+            data.playback.buffer[f * data.playback.channels + 1] = right;
         }
     }
 };
 
-#include "mute/debug.h"
+template <typename Patch>
+struct Mutator
+{
+    mute::RandomNumberGenerator RNG;
+    Patch current, origin, target;
+
+    Mutator()
+    {
+        int r = rand();
+        RNG = mute::RandomNumberGenerator::init(target.paramCount(), 1.0, r);
+        mutate();
+        // mutate();
+    }
+
+    void mutate()
+    {
+        RNG.seed(rand());
+        std::swap(origin, target);
+        for (int i = 0; i < target.paramCount(); i++)
+            target.param(i, RNG.next());
+    }
+    void lerp(float t)
+    {
+        for (int i = 0; i < current.paramCount(); i++)
+            current.param(i, mute::lerp(origin.param(i), target.param(i), t));
+    }
+
+};
+
+PercPatch f2fkick() 
+{
+    return {
+        .sequencer = { .increment = 1, .length = 4 },
+        .perc = {
+            .env1 = mute::Waveloppe::fall(0.5, 0.3),
+            .env2 = mute::Waveloppe::fall(0.5, 0.8),
+            .oscfreq = 30,
+            .pitchmod = 0.01,
+            .volume = 2.,
+            .noiseamt = 0.3,
+            .filterfreq = 100,
+            .filterenv = 0.3
+        }
+    };
+};
+
+PercPatch gritf() 
+{
+    return {
+        .sequencer = { .increment = 7, .length = 9 },
+        .perc = {
+            .env1 = mute::Waveloppe::fall(0.5, 0.4),
+            .env2 = mute::Waveloppe::fall(0.5, 0.8),
+            .oscfreq = 30,
+            .pitchmod = 0.001,
+            .volume = 0.8,
+            .noiseamt = 0.3,
+            .filterfreq = 100,
+            .filterenv = 0.3
+        }
+    };
+};
+
+struct Mix
+{
+    PercPatch kp1 = f2fkick();
+    PercPatch kp2 = gritf();
+    std::array<Mutator<PercPatch>, 8> pp;
+    float t;
+    int count = 0;
+    int selectedEncoder = 0;
+
+    struct Encoders {
+        static constexpr int NumEncoders = 2+8;
+        ma_encoder ee[NumEncoders];
+        std::array<int16_t, 256*2> buffer;
+
+        Encoders()
+        {
+            for (int i = 0; i < NumEncoders; i++)
+            {
+                ma_encoder_config config = ma_encoder_config_init(ma_encoding_format_wav, ma_format_s16, 2, 44100);
+                ma_result result = ma_encoder_init_file(fmt::format("track-{}.wav", i).c_str(), &config, &ee[i]);
+                if (result != MA_SUCCESS) {
+                    mute::log::error(fmt::format("Error initializing WAV encoder {}", i));
+                    return;
+                }
+            }
+        }
+        ~Encoders()
+        {
+            for (int i = 0; i < NumEncoders; i++)
+                ma_encoder_uninit(&ee[i]);
+        }
+
+        void write(int index, std::span<const float> values)
+        {
+            static constexpr float S16Max = std::numeric_limits<int16_t>::max();
+            static constexpr float S16Min = std::numeric_limits<int16_t>::min();
+            uint64_t framesWritten = 0;
+            for (size_t k = 0; k < values.size(); k++)
+                buffer[k] = values[k] * (values[k] > 0.f ? S16Max : -S16Min);
+            ma_encoder_write_pcm_frames(&ee[index], &buffer, values.size() / 2, &framesWritten);
+        }
+
+        ma_encoder& operator[](int index) { return ee[index]; }
+    } encoders;
+
+    std::vector<float> buffer;
+    mute::Transport transport;
+
+    template <typename Patch>
+    void process(mute::AudioProcessData data, Patch& patch)
+    {
+        namespace views = std::views;
+        namespace ranges = std::ranges;
+
+        mute::AudioProcessData pd = data;
+        std::ranges::fill(buffer, 0);
+        pd.playback.buffer = std::span { buffer.begin(), size_t(data.frames * data.playback.channels) };
+
+        patch.process(pd, transport);
+        encoders.write(selectedEncoder++, pd.playback.buffer);
+
+        auto added = views::zip(data.playback.buffer, pd.playback.buffer)
+            | views::transform([](auto zipped) { return mute::clamp(std::get<0>(zipped) + std::get<1>(zipped), -1.f, 1.f); });
+        ranges::copy(added, data.playback.buffer.begin());
+    }
+
+    void process(mute::AudioProcessData data)
+    {
+        selectedEncoder = 0;
+        for (auto& p: pp)
+        {
+            p.lerp(t);
+            p.current.volume = mute::clamp(p.current.volume, 0.1f, 0.3f);
+        }
+        buffer.resize(data.playback.buffer.size());
+        
+        process(data, kp1);
+        process(data, kp2);
+        for (auto& p: pp)
+            process(data, p.current);
+            
+        transport.update(data.frames / float(data.sampleRate));
+
+        t += 16.0 * (60. / transport.bpm) * data.frames / float(data.sampleRate);
+        t = mute::clamp(t, 0.f, 1.f);
+
+        if (transport.measure.ticks.bar)
+        {
+            count++;
+        }
+
+        if (count > 0)
+        {
+            fmt::println("MUTATE");
+            count = 0;
+            t = 0.f;
+            for (auto& p: pp)
+                p.mutate();
+        }
+    }
+};
 
 int main(int argc, char** argv)
 {
-    auto patchGroup = mute::PatchGroup();
-    patchGroup.add<OscSequencePatch>();
+    std::unique_ptr<Mix> mix = nullptr;
 
     auto driver = mute::AudioDriver({
         .playback = {
@@ -233,12 +568,37 @@ int main(int argc, char** argv)
         },
         .sampleRate = 44100,
         .bufferSize = 256,
-        .callback = [&](mute::AudioProcessData data) { patchGroup.process(data); }
+        .callback = [&](mute::AudioProcessData data) { mix->process(data); }
     });
 
+    mix = std::unique_ptr<Mix>(
+        new Mix {
+            .buffer = std::vector<float>(256*2),
+            .transport = {
+                .playing = true,
+                .bpm = 140.f
+            }
+        });
+    for (auto& p: mix->pp)
+        p.mutate();
+
     driver.start();
-    getchar();
+    while (int c = getchar())
+    {
+        if (c == 'q')
+            break;
+        // if (c == 'r') 
+        // {
+        //     mix->mpp.rnd();
+        // }
+        // if (c == 'r') mix.osp.rnd();
+        // if (c == 'd') mix.dp.rnd();
+        // if (c == 'z') mix.osp.volume = 0.4 - mix.osp.volume;
+        // if (c == 'e') mix.dp.volume = 1.0 - mix.dp.volume;
+    }
+
     driver.stop();
+    mix = nullptr;
 
     return 0;
 }

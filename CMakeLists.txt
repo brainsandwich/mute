@@ -26,8 +26,11 @@ list(APPEND CMAKE_MODULE_PATH
 add_executable(mute
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/driver.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/random.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/time.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/debug.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/miniaudio.impl.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/modules/oscillator.cc
 )
 set_target_properties(mute PROPERTIES FOLDER "mute")
 target_compile_features(mute PUBLIC cxx_std_23)
@@ -69,7 +72,7 @@ endfunction()
 
 target_warnings(mute PUBLIC ALL ERROR)
 if (NOT MSVC)
-    target_compile_options(mute PUBLIC -Wno-unused-parameter)
+    target_compile_options(mute PUBLIC -Wno-unused-parameter -Wno-gnu-anonymous-struct -Wno-nested-anon-types)
 endif()
 
 set_target_properties(mute PROPERTIES CMAKE_BUILD_TYPE ${MUTE_BUILD_TYPE})
@@ -79,7 +82,7 @@ set_target_properties(mute PROPERTIES CMAKE_BUILD_TYPE ${MUTE_BUILD_TYPE})
 include(fmt)
 include(miniaudio)
 include(libremidi)
-include(raylib)
+# include(raylib)
 # include(entt)
 # include(flecs)
 
@@ -88,7 +91,7 @@ target_compile_definitions(mute
         MUTE_USE_MINIAUDIO
         MUTE_USE_FMT
         MUTE_USE_LIBREMIDI
-        MUTE_USE_RAYLIB
+        # MUTE_USE_RAYLIB
         # MUTE_USE_ENTT
         # MUTE_USE_FLECS
 )
@@ -97,7 +100,7 @@ target_link_libraries(mute
         fmt::fmt
         miniaudio::miniaudio
         libremidi::libremidi
-        raylib::raylib
+        # raylib::raylib
         # EnTT::EnTT
         # flecs::flecs
 )

@@ -109,11 +109,11 @@ namespace mute
     {
         configuration.callback(AudioProcessData {
             .capture = {
-                .buffer = AudioBuffer::ref(std::span(input, configuration.capture.channels * frames)),
+                .buffer = std::span(input, configuration.capture.channels * frames),
                 .channels = configuration.capture.channels
             },
             .playback = {
-                .buffer = AudioBuffer::ref(std::span(output, configuration.playback.channels * frames)),
+                .buffer = std::span(output, configuration.playback.channels * frames),
                 .channels = configuration.playback.channels
             },
             .frames = frames,
