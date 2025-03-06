@@ -11,17 +11,26 @@ namespace mute
     AudioDriver::AudioDriver(const AudioDriverConfiguration& config)
         : configuration(config)
     {
+    }
+
+    AudioDriver::~AudioDriver()
+    {
+        uninit();
+    }
+
+    bool AudioDriver::init()
+    {
         ma_result result = MA_SUCCESS;
 
         if ((result = ma_context_init(nullptr, 0, nullptr, &context)))
         {
             log::error("Error initializing context");
-            return;
+            return false;
         }
 
         ma_device_type deviceType = {};
-        if (config.capture.channels > 0) deviceType = ma_device_type_capture;
-        if (config.playback.channels > 0) deviceType = ma_device_type(deviceType | ma_device_type_playback);
+        if (configuration.capture.channels > 0) deviceType = ma_device_type_capture;
+        if (configuration.playback.channels > 0) deviceType = ma_device_type(deviceType | ma_device_type_playback);
         auto deviceConfig = ma_device_config_init(deviceType);
         
         ma_device_info* captureDevices;
@@ -33,7 +42,7 @@ namespace mute
             , &captureDevices, &captureDevicesCount)))
         {
             log::error("Error getting devices list");
-            return;
+            return false;
         }
 
         auto captureDevicesNames = std::span(captureDevices, captureDevicesCount)
@@ -50,22 +59,22 @@ namespace mute
                 , fmt::join(playbackDevicesNames, "\n\t- "))
         );
 
-        deviceConfig.capture.channels = config.capture.channels;
+        deviceConfig.capture.channels = configuration.capture.channels;
         deviceConfig.capture.format = ma_format_f32;
         for (auto i = 0u; i < captureDevicesCount; i++)
         {
-            if (config.capture.channels > 0 && config.capture.deviceName == captureDevices[i].name)
+            if (configuration.capture.channels > 0 && configuration.capture.deviceName == captureDevices[i].name)
             {
                 log::info(fmt::format("* Found requested capture device {}", captureDevices[i].name));
                 deviceConfig.capture.pDeviceID = &captureDevices[i].id;
             }
         }
 
-        deviceConfig.playback.channels = config.playback.channels;
+        deviceConfig.playback.channels = configuration.playback.channels;
         deviceConfig.playback.format = ma_format_f32;
         for (auto i = 0u; i < playbackDevicesCount; i++)
         {
-            if (config.playback.channels > 0 && config.playback.deviceName == playbackDevices[i].name)
+            if (configuration.playback.channels > 0 && configuration.playback.deviceName == playbackDevices[i].name)
             {
                 log::info(fmt::format("* Found requested playback device {}", playbackDevices[i].name));
                 deviceConfig.playback.pDeviceID = &playbackDevices[i].id;
@@ -73,11 +82,11 @@ namespace mute
         }
 
         deviceConfig.periods = 1;
-        deviceConfig.periodSizeInFrames = config.bufferSize > 0
-            ? config.bufferSize
+        deviceConfig.periodSizeInFrames = configuration.bufferSize > 0
+            ? configuration.bufferSize
             : DefaultBufferSize;
-        deviceConfig.sampleRate = config.sampleRate > 0
-            ? config.sampleRate
+        deviceConfig.sampleRate = configuration.sampleRate > 0
+            ? configuration.sampleRate
             : DefaultSampleRate;
 
         deviceConfig.pUserData = this;
@@ -90,19 +99,28 @@ namespace mute
         if ((result = ma_device_init(&context, &deviceConfig, &device)))
         {
             log::error("Error initializing device");
-            return;
+            return false;
         }
+        
+        initialized = true;
+        return true;
     }
 
-    AudioDriver::~AudioDriver()
+    void AudioDriver::uninit()
     {
+        if (!initialized)
+            return;
+
         stop();
+        if (ma_device_get_state(&device) != ma_device_state_uninitialized)
+            ma_device_uninit(&device);
         ma_context_uninit(&context);
+        context = {};
     }
 
     bool AudioDriver::valid() const
     {
-        return device.state.value  != ma_device_state_uninitialized;
+        return ma_device_get_state(&device) != ma_device_state_uninitialized;
     }
 
     void AudioDriver::internalAudioCallback(const float* input, float* output, int frames)
@@ -126,6 +144,7 @@ namespace mute
         if (!ma_device_is_started(&device))
             ma_device_start(&device);
     }
+
     void AudioDriver::stop()
     {
         if (ma_device_is_started(&device))

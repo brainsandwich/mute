@@ -165,11 +165,15 @@ namespace mute
 
         ma_context context;
         ma_device device;
+        bool initialized = false;
 
         AudioDriverConfiguration configuration;
 
         AudioDriver(const AudioDriverConfiguration& config = {});
         ~AudioDriver();
+
+        bool init();
+        void uninit();
 
         bool valid() const;
         void internalAudioCallback(const float* input, float* output, int frames);

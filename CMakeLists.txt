@@ -25,6 +25,7 @@ list(APPEND CMAKE_MODULE_PATH
 
 add_executable(mute
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/driver.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/random.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/time.cc
@@ -72,7 +73,11 @@ endfunction()
 
 target_warnings(mute PUBLIC ALL ERROR)
 if (NOT MSVC)
-    target_compile_options(mute PUBLIC -Wno-unused-parameter -Wno-gnu-anonymous-struct -Wno-nested-anon-types)
+    target_compile_options(mute PUBLIC
+        -Wno-unused-parameter
+        -Wno-gnu-anonymous-struct
+        -Wno-nested-anon-types
+        -Wno-unused-const-variable)
 endif()
 
 set_target_properties(mute PROPERTIES CMAKE_BUILD_TYPE ${MUTE_BUILD_TYPE})
@@ -113,3 +118,12 @@ if (APPLE)
             "-framework OpenGL"
     )
 endif()
+
+# ------------------ ASSETS
+
+add_custom_command(
+    TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E create_symlink "${CMAKE_CURRENT_SOURCE_DIR}/assets" "${CMAKE_CURRENT_BINARY_DIR}/assets"
+    DEPENDS ${destination}
+    COMMENT "symbolic link resources folder from ${CMAKE_CURRENT_SOURCE_DIR}/assets => ${CMAKE_CURRENT_BINARY_DIR}/assets"
+)
