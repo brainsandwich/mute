@@ -35,7 +35,7 @@ add_executable(mute
 set_target_properties(mute PROPERTIES FOLDER "mute")
 target_compile_features(mute PUBLIC cxx_std_23)
 target_include_directories(mute PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_compile_options(mute PUBLIC -O0 -g)
+# target_compile_options(mute PUBLIC -O0 -g)
 
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
@@ -82,7 +82,7 @@ set_target_properties(mute PROPERTIES CMAKE_BUILD_TYPE ${MUTE_BUILD_TYPE})
 include(fmt)
 include(miniaudio)
 include(libremidi)
-# include(raylib)
+include(raylib)
 # include(entt)
 # include(flecs)
 
@@ -91,7 +91,7 @@ target_compile_definitions(mute
         MUTE_USE_MINIAUDIO
         MUTE_USE_FMT
         MUTE_USE_LIBREMIDI
-        # MUTE_USE_RAYLIB
+        MUTE_USE_RAYLIB
         # MUTE_USE_ENTT
         # MUTE_USE_FLECS
 )
@@ -100,7 +100,7 @@ target_link_libraries(mute
         fmt::fmt
         miniaudio::miniaudio
         libremidi::libremidi
-        # raylib::raylib
+        raylib::raylib
         # EnTT::EnTT
         # flecs::flecs
 )
