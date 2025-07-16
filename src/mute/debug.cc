@@ -1,9 +1,12 @@
 #include "mute/debug.h"
 
 #include <fmt/printf.h>
+#include <filesystem>
 
 namespace mute::log
 {
+    static constexpr auto MuteSourceDir = "";
+
     enum class LogLevel {
         Debug,
         Info,
@@ -13,7 +16,8 @@ namespace mute::log
 
     std::string locationString(const std::source_location& location)
     {
-        return fmt::format("{}:{}", location.file_name(), location.line());
+        auto path = std::filesystem::relative(location.file_name(), MuteSourceDir);
+        return fmt::format("{}:{}", path.string(), location.line());
     }
 
     void logmsg(LogLevel level, std::string_view message, const std::source_location& location)

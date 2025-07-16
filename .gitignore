@@ -1,5 +1,5 @@
 build
-ext
+ext/fetch
 design
 .DS_Store
 .vscode

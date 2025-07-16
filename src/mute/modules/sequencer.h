@@ -164,20 +164,21 @@ namespace mute
         float gatelen = 0.1;
         
         EdgeDetector gate;
-        bool output;
+        bool output = false;
 
         float t = 0;
         int index = -1;
 
         void reset()
         {
-            index = length + 1;
+            index = -1;
             t = 0;
+            output = false;
         }
         
         void next()
         {
-            index = index < 0 ? 0 : index + increment;
+            index = index < 0 ? 0 : (index + increment);
             if (index > length)
             {
                 index -= length;

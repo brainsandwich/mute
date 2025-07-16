@@ -49,7 +49,7 @@ namespace mute
             env1.process(sr);
             env2.process(sr);
 
-            float fm = 0.5 * sr * pitchmod * env1.output;
+            float fm = 0.25 * sr * pitchmod * env1.output;
             osc.frequency = oscfreq + fm;
             osc.process(sr);
 
@@ -57,7 +57,7 @@ namespace mute
             noise.process(sr);
 
             float mix1 = osc.output + noise.output * noiseamt;
-            filter.frequency = filterfreq + 0.4 * sr * filterenv * env1.output;
+            filter.frequency = filterfreq + 0.25 * sr * filterenv * env1.output;
             filter.input = mix1;
             filter.process(sr);
 

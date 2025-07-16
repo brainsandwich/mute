@@ -24,6 +24,9 @@ namespace mute
         void process(float sr);
 
         static WavetableOscillator sine();
+        static WavetableOscillator triangle();
+        static WavetableOscillator square();
+        static WavetableOscillator sawtooth();
         static WavetableOscillator noise();
     };
 }
