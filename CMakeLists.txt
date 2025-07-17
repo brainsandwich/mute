@@ -25,13 +25,13 @@ list(APPEND CMAKE_MODULE_PATH
 
 add_executable(mute
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui.cc
+    # ${CMAKE_CURRENT_SOURCE_DIR}/src/ui.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/driver.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/random.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/time.cc
+    # ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/random.cc
+    # ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/time.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/debug.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/miniaudio.impl.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/modules/oscillator.cc
+    # ${CMAKE_CURRENT_SOURCE_DIR}/src/mute/modules/oscillator.cc
 )
 set_target_properties(mute PROPERTIES FOLDER "mute")
 target_compile_features(mute PUBLIC cxx_std_23)

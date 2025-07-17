@@ -255,4 +255,14 @@ namespace patch
         }
     };
 
+    static constexpr const char* PatchName = "Modal Drummer";
+    static constexpr const char* PatchCreationDate = "17.07.25";
+    static constexpr const char* PatchDesc =
+R"(
+A polyphonic Modal synthesizer is triggered by an array of Euclidean sequencers.
+The Synthesizer has a controlled polyphony (at compilation time) ; on my Mac M1 Pro
+it's okay up until about 12 voices max. Each voice uses a bandpass filter bank of
+128 modes, pinged by a mix of triangle impulse (Waveloppe) and a noise generator
+(simple rand() generator).
+)";
 }

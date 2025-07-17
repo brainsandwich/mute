@@ -1,7 +1,5 @@
 #pragma once
 
-#include "mute/util.h"
-
 #include <math_approx/math_approx.hpp>
 
 namespace mute
@@ -9,6 +7,21 @@ namespace mute
     static constexpr double Pi = 3.14159265358979323846264;
     static constexpr double Tau = 2 * Pi;
     static constexpr double Epsilon = 1e-6; // arbitrary as 1 microsec
+
+    template<typename To, typename From>
+    struct unsafe_bit_cast_t {
+        union {
+            From from;
+            To to;
+        };
+    };
+
+    template<typename To, typename From>
+    To unsafe_bit_cast(From from) {
+        unsafe_bit_cast_t<To, From> u;
+        u.from = from;
+        return u.to;
+    }
 
     static inline float fast_rsqrt_carmack(float x) {
         uint32_t i;
@@ -52,11 +65,6 @@ namespace mute
             out *= in;
         return out;
     }
-    
-    constexpr const auto& max(const auto& value, const auto& bound) { return value > bound ? value : bound; }
-    constexpr const auto& min(const auto& value, const auto& bound) { return value < bound ? value : bound; }
-    constexpr const auto& clamp(const auto& value, const auto& low, const auto& high) { return max(min(value, high), low); }
-    constexpr const auto& clamp(const auto& value) { return clamp(value, static_cast<decltype(value)>(1), static_cast<decltype(value)>(-1)); }
 
     constexpr auto cos(auto x) { return math_approx::cos<5>(x); }
     constexpr auto sin(auto x) { return math_approx::sin<5>(x); }

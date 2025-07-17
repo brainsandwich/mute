@@ -4,20 +4,10 @@
 
 namespace mute
 {
-    template<typename To, typename From>
-    struct unsafe_bit_cast_t {
-        union {
-            From from;
-            To to;
-        };
-    };
-
-    template<typename To, typename From>
-    To unsafe_bit_cast(From from) {
-        unsafe_bit_cast_t<To, From> u;
-        u.from = from;
-        return u.to;
-    }
+    constexpr auto max(auto value, auto bound) { return value > bound ? value : bound; }
+    constexpr auto min(auto value, auto bound) { return value < bound ? value : bound; }
+    constexpr auto clamp(auto value, auto low, auto high) { return max(min(value, high), low); }
+    constexpr auto clamp(auto value) { return max(min(value, static_cast<decltype(value)>(1)), static_cast<decltype(value)>(-1)); }
     
     /// @brief Linearly interpolate value between a and b, using parameter t
     /// @param a left

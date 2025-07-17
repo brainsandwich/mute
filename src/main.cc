@@ -73,9 +73,10 @@ struct MIDIKeyboard
 
 int main(int argc, char** argv)
 {
-    SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_VSYNC_HINT);
-    InitWindow(512, 512, "mute");
-    SetTargetFPS(120);
+    fmt::println("---- MUTE patch {} // {}\n{}----"
+        , patch::PatchName
+        , patch::PatchCreationDate
+        , patch::PatchDesc);
 
     auto patch = patch::ModalDrummer {};
 
@@ -100,16 +101,9 @@ int main(int argc, char** argv)
     driver.init();
     driver.start();
     
-    while (!WindowShouldClose())
-    {
-        BeginDrawing();
-            ClearBackground(BackgroundColor);
-        EndDrawing();
-    }
+    getchar();
 
     driver.stop();
     driver.uninit();
-
-    CloseWindow();
     return 0;
 }
