@@ -187,7 +187,6 @@
 
 #include <span>
 #include <functional>
-#include <expected>
 #include <miniaudio.h>
 
 // Driver

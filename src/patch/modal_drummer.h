@@ -9,6 +9,69 @@
 
 namespace patch
 {
+    struct Delay
+    {
+        static constexpr unsigned BufferSize = 0b1 << 19;
+        static constexpr unsigned BufferMask = BufferSize - 1;
+        static constexpr float BufferSizeSeconds = BufferSize / 44100.f;
+
+        float time;
+
+        float input = 0;
+        float output = 0;
+
+        std::array<float, BufferSize> samples;
+        size_t samplePosition = 0;
+
+        void process(float sr)
+        {
+            samples[samplePosition] = input;
+            samplePosition = (samplePosition + 1) & BufferMask;
+
+            float delayedPosition = time * sr;
+            int t1 = delayedPosition;
+            int t2 = delayedPosition - 1;
+            float tl = delayedPosition - t1;
+            t1 = unsigned(int(samplePosition) - t1) & BufferMask;
+            t2 = unsigned(int(samplePosition) - t2) & BufferMask;
+
+            float w1 = samples[t1];
+            float w2 = samples[t2];
+            output = mute::lerp(w1, w2, tl);
+        }
+    };
+
+    struct Echo
+    {
+        float time;
+        float feedback;
+        float drywet;
+
+        struct {
+            float left, right;
+        } input;
+        struct {
+            float left, right;
+        } output;
+        struct {
+            Delay left;
+            Delay right;
+        } delays;
+
+        void process(float sr)
+        {
+            delays.left.time = time;
+            delays.right.time = time;
+            delays.left.input = input.left + feedback * delays.left.output;
+            delays.right.input = input.right + feedback * delays.right.output;
+
+            delays.left.process(sr);
+            delays.right.process(sr);
+
+            output.left = mute::lerp(input.left, delays.left.output, drywet);
+            output.right = mute::lerp(input.right, delays.right.output, drywet);
+        }
+    };
 
     struct Modal
     {
@@ -177,8 +240,8 @@ namespace patch
     {
         Synth& synth;
         float freq;
-        mute::dsp::EuclideanSequencer seq;
         std::string msg;
+        mute::dsp::EuclideanSequencer seq;
         mute::dsp::EdgeDetector ed;
 
         void process(float clkin, float sr)
@@ -196,22 +259,32 @@ namespace patch
         }
     };
 
+    namespace shapers
+    {
+        float sine(float phazor, float low, float high) { return mute::bipolarToUnipolar(mute::cos(phazor)) * (high - low) + low; }
+        float sine(float phazor, float range = 2) { return sine(phazor, -range/2, range/2); }
+    }
+
     struct ModalDrummer
     {
-        using Synth = Polyphonic<Modal, 8>;
+        using Synth = Polyphonic<Modal, 4>;
 
-        float gain = 0.9f;
+        float gain = 2.f;
 
         mute::dsp::Phazor clk = { .frequency = 8.f };
 
         Synth synth = {};
+        Echo echo = { .time = 0.0001, .feedback = 0.9, .drywet = 0.1 };
 
-        std::array<Drummer<Synth>, 5> drummers = {
-            Drummer { synth, .freq = 37, { .length = 9, .increment = 5 }, .msg = "BONG" },
-            Drummer { synth, .freq = 74, { .length = 23, .increment = 4 }, .msg = ">---bNgg" },
-            Drummer { synth, .freq = 123, { .length = 37, .increment = 3 }, .msg = ">-->->>>->king" },
-            Drummer { synth, .freq = 236, { .length = 38, .increment = 7 }, .msg = ">->->->>>>------bouW" },
-            Drummer { synth, .freq = 778, { .length = 48, .increment = 9 }, .msg = ">>>>->>>->->->>>>>>>>iiiu" }
+        std::array<Drummer<Synth>, 3> drummers = {
+            Drummer { synth, .freq = 48,  .msg = "BONG" , { .length = 4, .increment = 1 } },
+            Drummer { synth, .freq = 236, .msg = ">->->->>>>------bouW" , { .length = 8, .increment = 3 } },
+
+            // Drummer { synth, .freq = 48,  .msg = "BONG" , { .length = 9, .increment = 5 } },
+            // Drummer { synth, .freq = 74,  .msg = ">---bNgg" , { .length = 23, .increment = 4 } },
+            // Drummer { synth, .freq = 123, .msg = ">-->->>>->king" , { .length = 37, .increment = 3 } },
+            // Drummer { synth, .freq = 236, .msg = ">->->->>>>------bouW" , { .length = 38, .increment = 7 } },
+            Drummer { synth, .freq = 778, .msg = ">>>>->>>->->->>>>>>>>iiiu", { .length = 48, .increment = 9 }  }
         };
 
         struct {
@@ -240,21 +313,26 @@ namespace patch
             for (int i = 0; i < (int) synth.voices.size(); i++)
             {
                 auto& voice = synth.voices[i];
-                voice.decay = 1.0f + 0.8f * mute::cos(lfos.D.output + 0.74);
-                voice.stiffness = 0.01 + 0.002 * mute::cos(lfos.A.output + 0.77);
-                voice.tilt = 0.8f + 0.1f * mute::cos(lfos.B.output);
-                voice.partialSpacing = (4.7f + 3.f * mute::cos(lfos.D.output)) * voice.env.output + 1.6f;
-                voice.sinephase = 0.2*mute::cos(lfos.A.output);
-                voice.partialCompression = 1.0 + 0.7 * mute::cos(lfos.C.output);
+                voice.decay = shapers::sine(lfos.D.output, 0.2f, 1.5f);
+                voice.stiffness = shapers::sine(lfos.A.output, 0.001, 0.01);
+                voice.tilt = shapers::sine(lfos.B.output, 0.5, 1.5);
+                voice.partialSpacing = (4.7f + shapers::sine(lfos.D.output, 4.f)) * voice.env.output + 1.6f;
+                voice.sinephase = shapers::sine(lfos.A.output, 0.f, 1.f);
+                voice.partialCompression = shapers::sine(lfos.C.output, 0.3, 1.8);
             }
 
             synth.process(sr);
 
-            output.left = mute::clamp(mute::tanh(synth.output.left * gain), -1.f, 1.f);
-            output.right = mute::clamp(mute::tanh(synth.output.right * gain), -1.f, 1.f);
+            echo.time = shapers::sine(mute::pow(lfos.D.output, 3.4f) + 1.4, 0.001, 0.2);
+            echo.input = { synth.output.left * 1.f, synth.output.right * 1.f };
+            echo.process(sr);
+
+            output.left = mute::clamp(mute::tanh(echo.output.left * gain), -1.f, 1.f);
+            output.right = mute::clamp(mute::tanh(echo.output.right * gain), -1.f, 1.f);
         }
     };
 
+    using CurrentPatch = ModalDrummer;
     static constexpr const char* PatchName = "Modal Drummer";
     static constexpr const char* PatchCreationDate = "17.07.25";
     static constexpr const char* PatchDesc =

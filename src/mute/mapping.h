@@ -34,6 +34,9 @@ namespace mute
         using Variant = std::variant<SteppedMapping, LinearMapping, ExponentialMapping>;
         Variant variant = LinearMapping { 0.0f, 1.0f };
 
+        template <typename ActualMapping>
+        Mapping(ActualMapping&& m): variant(m) {}
+
         float denormalize(float in) const
         {
             return std::visit(overloaded {

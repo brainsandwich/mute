@@ -1,9 +1,6 @@
-#include <algorithm>
-
-#include <variant>
 #include <string>
 #include <array>
-#include <vector>
+#include <optional>
 
 #include <fmt/printf.h>
 #include <fmt/std.h>
@@ -55,7 +52,7 @@ struct MIDIKeyboard
 
         if (IsKeyPressed(KEY_Z)) { octave--; fmt::println("-- octave down ({})", octave); }
         if (IsKeyPressed(KEY_X)) { octave++; fmt::println("-- octave up ({})", octave); }
-        octave = std::clamp(octave, 0, 20);
+        octave = mute::clamp(octave, 0, 20);
 
         int pressedKeys = 0;
         for (int i = 0; i < (int) status.size(); i++)
@@ -71,6 +68,44 @@ struct MIDIKeyboard
     }
 };
 
+#include "mute/mapping.h"
+
+float exhort(float* target, const mute::Mapping& mapping, std::optional<float> value = {})
+{
+    if (value)
+        *target = mapping.denormalize(*value);
+    return mapping.normalize(*target);
+}
+
+float exhort(float* target, std::optional<float> value = {})
+{
+    return exhort(target, mute::LinearMapping { 0, 1 }, value);
+}
+
+struct Interface
+{
+    float volume;
+
+    enum Param {
+        ParamVolume,
+        ParamCount
+    };
+
+    std::optional<float> param(Param p, std::optional<float> value = {})
+    {
+        switch (p)
+        {
+            case ParamVolume: return exhort(&volume, value);
+            default: return std::nullopt;
+        }
+    }
+
+    void process(float sr)
+    {
+        
+    }
+};
+
 int main(int argc, char** argv)
 {
     fmt::println("---- MUTE patch {} // {}\n{}----"
@@ -78,7 +113,7 @@ int main(int argc, char** argv)
         , patch::PatchCreationDate
         , patch::PatchDesc);
 
-    auto patch = patch::ModalDrummer {};
+    auto patch = patch::CurrentPatch {};
 
     auto driver = mute::Driver {
         .configuration = {

@@ -55,4 +55,7 @@ namespace mute
     {
         return centerFrequency * mute::pow(2.f, (pitch - 69.f) / 12.f);
     }
+
+    constexpr float bipolarToUnipolar(float in) { return in * 0.5 + 0.5; }
+    constexpr float unipolarToBipolar(float in) { return (in - 0.5) * 2; }
 }
